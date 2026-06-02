@@ -45,11 +45,12 @@ data class Candidate(
 )
 
 interface GeminiApiService {
-    @POST("v1beta/models/gemini-3.5-flash:generateContent")
+    @POST("v1beta/models/{model}:generateContent")
     suspend fun generateContent(
+        @retrofit2.http.Path("model") model: String,
         @Query("key") apiKey: String,
         @Body request: GenerateContentRequest
-    ): GenerateContentResponse
+    ): retrofit2.Response<GenerateContentResponse>
 }
 
 object RetrofitClient {
@@ -80,8 +81,19 @@ class AiAdvisorService {
         transactions: List<Transaction>,
         userMessage: String
     ): String = withContext(Dispatchers.IO) {
-        val apiKey = BuildConfig.GEMINI_API_KEY
-        if (apiKey.isBlank() || apiKey.contains("MY_GEMINI_API_KEY")) {
+        val apiKeys = listOf(
+            BuildConfig.GEMINI_API_KEY_1,
+            BuildConfig.GEMINI_API_KEY_2,
+            BuildConfig.GEMINI_API_KEY_3
+        ).filter { it.isNotBlank() && !it.contains("MY_GEMINI_API_KEY") }.toMutableList()
+        
+        // Support fallback to standard GEMINI_API_KEY
+        val standardKey = BuildConfig.GEMINI_API_KEY
+        if (standardKey.isNotBlank() && !standardKey.contains("MY_GEMINI_API_KEY") && !apiKeys.contains(standardKey)) {
+            apiKeys.add(0, standardKey)
+        }
+
+        if (apiKeys.isEmpty()) {
             return@withContext "Please configure your Gemini API key in the AI Studio Settings (Secrets Panel)."
         }
 
@@ -114,11 +126,25 @@ class AiAdvisorService {
             systemInstruction = Content(parts = listOf(Part(text = "You are a helpful, professional Thai financial advisor. Keep answers concise.")))
         )
         
-        try {
-            val response = RetrofitClient.service.generateContent(apiKey, request)
-            response.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text ?: "No response from AI."
-        } catch (e: Exception) {
-            "Error reaching AI Advisor: ${e.message}"
+        for (i in apiKeys.indices) {
+            try {
+                val response = RetrofitClient.service.generateContent("gemini-1.5-flash", apiKeys[i], request)
+                if (response.isSuccessful) {
+                    val body = response.body()
+                    return@withContext body?.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text ?: "No response from AI."
+                } else {
+                    if (response.code() == 429 || response.code() == 503) {
+                        continue // Try next key
+                    } else {
+                        return@withContext "AI Error: ${response.code()}"
+                    }
+                }
+            } catch (e: Exception) {
+                if (i == apiKeys.size - 1) return@withContext "Error reaching AI Advisor: ${e.message}"
+                continue
+            }
         }
+        
+        "All AI keys are currently unavailable."
     }
 }

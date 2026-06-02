@@ -5,8 +5,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.TrendingDown
-import androidx.compose.material.icons.filled.TrendingUp
+import androidx.compose.material.icons.automirrored.filled.TrendingDown
+import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -16,6 +16,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.background
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.ui.FinanceViewModel
@@ -60,7 +61,7 @@ fun DashboardScreen(viewModel: FinanceViewModel) {
             ) {
                 Column(modifier = Modifier.padding(16.dp).fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
                     Box(modifier = Modifier.size(40.dp).background(Color.White.copy(alpha = 0.5f), RoundedCornerShape(16.dp)), contentAlignment = Alignment.Center) {
-                        Icon(Icons.Filled.TrendingUp, contentDescription = "Income", tint = com.example.ui.theme.IncomeColor)
+                        Icon(Icons.AutoMirrored.Filled.TrendingUp, contentDescription = "Income", tint = com.example.ui.theme.IncomeColor)
                     }
                     Column {
                         Text("Income", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -75,7 +76,7 @@ fun DashboardScreen(viewModel: FinanceViewModel) {
             ) {
                 Column(modifier = Modifier.padding(16.dp).fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
                     Box(modifier = Modifier.size(40.dp).background(Color.White.copy(alpha = 0.5f), RoundedCornerShape(16.dp)), contentAlignment = Alignment.Center) {
-                        Icon(Icons.Filled.TrendingDown, contentDescription = "Expense", tint = com.example.ui.theme.ExpenseColor)
+                        Icon(Icons.AutoMirrored.Filled.TrendingDown, contentDescription = "Expense", tint = com.example.ui.theme.ExpenseColor)
                     }
                     Column {
                         Text("Expense", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -86,7 +87,13 @@ fun DashboardScreen(viewModel: FinanceViewModel) {
         }
         
         Spacer(modifier = Modifier.height(24.dp))
-        Text("Recent Transactions", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Text(
+            "RECENT TRANSACTIONS",
+            style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 2.sp),
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 8.dp)
+        )
         Spacer(modifier = Modifier.height(8.dp))
         
         if (transactions.isEmpty()) {

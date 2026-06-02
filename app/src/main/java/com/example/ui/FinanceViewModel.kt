@@ -11,6 +11,7 @@ import com.example.data.Transaction
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -45,11 +46,10 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
         
         // Initialize with default accounts if empty
         viewModelScope.launch {
-            repository.allAccounts.collect { accounts ->
-                if (accounts.isEmpty()) {
-                    addAccount(Account(name = "Bank Account", type = "Bank", initialBalance = 0.0, color = "#2563eb"))
-                    addAccount(Account(name = "Cash", type = "Cash", initialBalance = 0.0, color = "#16a34a"))
-                }
+            val accounts = repository.allAccounts.first()
+            if (accounts.isEmpty()) {
+                addAccount(Account(name = "Bank Account", type = "Bank", initialBalance = 0.0, color = "#2563eb"))
+                addAccount(Account(name = "Cash", type = "Cash", initialBalance = 0.0, color = "#16a34a"))
             }
         }
     }

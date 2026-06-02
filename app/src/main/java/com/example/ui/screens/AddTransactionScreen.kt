@@ -1,7 +1,11 @@
 package com.example.ui.screens
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -10,6 +14,9 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.Transaction
 import com.example.ui.FinanceViewModel
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -18,12 +25,39 @@ fun AddTransactionScreen(viewModel: FinanceViewModel, onNavigateBack: () -> Unit
     var name by remember { mutableStateOf("") }
     var amount by remember { mutableStateOf("") }
     var category by remember { mutableStateOf("") }
+    var source by remember { mutableStateOf("") }
+    var note by remember { mutableStateOf("") }
+    
+    var showDatePicker by remember { mutableStateOf(false) }
+    var selectedDate by remember { mutableStateOf(System.currentTimeMillis()) }
     
     val accounts by viewModel.allAccounts.collectAsStateWithLifecycle()
     var selectedAccountId by remember { mutableStateOf<Int?>(null) }
     var expanded by remember { mutableStateOf(false) }
 
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+    if (showDatePicker) {
+        val datePickerState = rememberDatePickerState(initialSelectedDateMillis = selectedDate)
+        DatePickerDialog(
+            onDismissRequest = { showDatePicker = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    datePickerState.selectedDateMillis?.let { selectedDate = it }
+                    showDatePicker = false
+                }) {
+                    Text("OK")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDatePicker = false }) {
+                    Text("Cancel")
+                }
+            }
+        ) {
+            DatePicker(state = datePickerState)
+        }
+    }
+
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState())) {
         Text("Add Transaction", style = MaterialTheme.typography.headlineMedium)
         Spacer(modifier = Modifier.height(16.dp))
 
@@ -41,6 +75,20 @@ fun AddTransactionScreen(viewModel: FinanceViewModel, onNavigateBack: () -> Unit
         }
         
         Spacer(modifier = Modifier.height(16.dp))
+
+        OutlinedTextField(
+            value = SimpleDateFormat("dd MMM yyyy", Locale.getDefault()).format(Date(selectedDate)),
+            onValueChange = { },
+            readOnly = true,
+            label = { Text("Date") },
+            trailingIcon = { 
+                IconButton(onClick = { showDatePicker = true }) {
+                    Icon(Icons.Filled.DateRange, contentDescription = "Select Date")
+                }
+            },
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(modifier = Modifier.height(8.dp))
 
         OutlinedTextField(
             value = name,
@@ -64,7 +112,16 @@ fun AddTransactionScreen(viewModel: FinanceViewModel, onNavigateBack: () -> Unit
         OutlinedTextField(
             value = category,
             onValueChange = { category = it },
-            label = { Text("Category") },
+            label = { Text(if (type == "Income") "Category (e.g. Salary)" else "Category (e.g. Food)") },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        
+        OutlinedTextField(
+            value = source,
+            onValueChange = { source = it },
+            label = { Text("Source / Destination") },
             modifier = Modifier.fillMaxWidth(),
             singleLine = true
         )
@@ -98,6 +155,15 @@ fun AddTransactionScreen(viewModel: FinanceViewModel, onNavigateBack: () -> Unit
                 }
             }
         }
+        Spacer(modifier = Modifier.height(8.dp))
+        
+        OutlinedTextField(
+            value = note,
+            onValueChange = { note = it },
+            label = { Text("Note (Optional)") },
+            modifier = Modifier.fillMaxWidth(),
+            minLines = 3
+        )
         
         Spacer(modifier = Modifier.height(32.dp))
         
@@ -111,11 +177,11 @@ fun AddTransactionScreen(viewModel: FinanceViewModel, onNavigateBack: () -> Unit
                             name = name,
                             type = type,
                             amount = parsedAmount,
-                            date = System.currentTimeMillis(),
+                            date = selectedDate,
                             accountId = accId,
                             category = if(category.isBlank()) "General" else category,
-                            source = "",
-                            note = ""
+                            source = source,
+                            note = note
                         )
                     )
                     onNavigateBack()
