@@ -5,75 +5,47 @@ import com.example.data.Transaction
 import com.squareup.moshi.JsonClass
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
-import okhttp3.ResponseBody
-import retrofit2.Retrofit
-import retrofit2.converter.moshi.MoshiConverterFactory
-import retrofit2.http.Body
-import retrofit2.http.POST
-import retrofit2.http.Query
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.util.concurrent.TimeUnit
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
+import java.io.IOException
 
-// Using Moshi instead of kotlinx.serialization as it's already provided locally
 @JsonClass(generateAdapter = true)
-data class GenerateContentRequest(
-    val contents: List<Content>,
-    val systemInstruction: Content? = null
+data class OpenAiRequest(
+    val model: String,
+    val messages: List<OpenAiMessage>
 )
 
 @JsonClass(generateAdapter = true)
-data class Content(
-    val parts: List<Part>
+data class OpenAiMessage(
+    val role: String,
+    val content: String
 )
 
 @JsonClass(generateAdapter = true)
-data class Part(
-    val text: String? = null
+data class OpenAiResponse(
+    val choices: List<OpenAiChoice>?
 )
 
 @JsonClass(generateAdapter = true)
-data class GenerateContentResponse(
-    val candidates: List<Candidate>?
+data class OpenAiChoice(
+    val message: OpenAiMessage?
 )
 
-@JsonClass(generateAdapter = true)
-data class Candidate(
-    val content: Content?
-)
-
-interface GeminiApiService {
-    @POST("v1beta/models/{model}:generateContent")
-    suspend fun generateContent(
-        @retrofit2.http.Path("model") model: String,
-        @Query("key") apiKey: String,
-        @Body request: GenerateContentRequest
-    ): retrofit2.Response<GenerateContentResponse>
-}
-
-object RetrofitClient {
-    private const val BASE_URL = "https://generativelanguage.googleapis.com/"
-
-    private val okHttpClient = OkHttpClient.Builder()
+object AiApiClient {
+    val client = OkHttpClient.Builder()
         .connectTimeout(60, TimeUnit.SECONDS)
         .readTimeout(60, TimeUnit.SECONDS)
         .writeTimeout(60, TimeUnit.SECONDS)
         .build()
 
-    private val moshi = Moshi.Builder()
+    val moshi: Moshi = Moshi.Builder()
         .add(KotlinJsonAdapterFactory())
         .build()
-
-    val service: GeminiApiService by lazy {
-        val retrofit = Retrofit.Builder()
-            .baseUrl(BASE_URL)
-            .client(okHttpClient)
-            .addConverterFactory(MoshiConverterFactory.create(moshi))
-            .build()
-        retrofit.create(GeminiApiService::class.java)
-    }
 }
 
 class AiAdvisorService {
@@ -81,20 +53,29 @@ class AiAdvisorService {
         transactions: List<Transaction>,
         userMessage: String
     ): String = withContext(Dispatchers.IO) {
-        val apiKeys = listOf(
-            BuildConfig.GEMINI_API_KEY_1,
-            BuildConfig.GEMINI_API_KEY_2,
-            BuildConfig.GEMINI_API_KEY_3
-        ).filter { it.isNotBlank() && !it.contains("MY_GEMINI_API_KEY") }.toMutableList()
-        
-        // Support fallback to standard GEMINI_API_KEY
-        val standardKey = BuildConfig.GEMINI_API_KEY
-        if (standardKey.isNotBlank() && !standardKey.contains("MY_GEMINI_API_KEY") && !apiKeys.contains(standardKey)) {
-            apiKeys.add(0, standardKey)
-        }
+        val providers = listOf(
+            AiProvider(
+                name = "Groq",
+                url = "https://api.groq.com/openai/v1/chat/completions",
+                key = BuildConfig.GROQ_API_KEY,
+                model = "llama3-70b-8192"
+            ),
+            AiProvider(
+                name = "DeepSeek",
+                url = "https://api.deepseek.com/chat/completions",
+                key = BuildConfig.DEEPSEEK_API_KEY,
+                model = "deepseek-chat"
+            ),
+            AiProvider(
+                name = "Mistral",
+                url = "https://api.mistral.ai/v1/chat/completions",
+                key = BuildConfig.MISTRAL_API_KEY,
+                model = "mistral-small-latest"
+            )
+        ).filter { it.key.isNotBlank() }
 
-        if (apiKeys.isEmpty()) {
-            return@withContext "Please configure your Gemini API key in the AI Studio Settings (Secrets Panel)."
+        if (providers.isEmpty()) {
+            return@withContext "Please configure at least one API key (GROQ, DEEPSEEK, or MISTRAL) in the AI Studio Settings (Secrets Panel)."
         }
 
         val income = transactions.filter { it.type == "Income" }.sumOf { it.amount }
@@ -106,7 +87,8 @@ class AiAdvisorService {
             .mapValues { it.value.sumOf { t -> t.amount } }
         val topCategory = categoryExpenses.maxByOrNull { it.value }?.key ?: "None"
 
-        val contextPrompt = """
+        val systemPrompt = "You are a helpful, professional Thai financial advisor. Keep answers concise."
+        val prompt = """
             You are a personal financial advisor in Thai. Analyze the financial data below and answer the user.
             
             Current Financial Context:
@@ -121,30 +103,55 @@ class AiAdvisorService {
             Answer concisely and provide real, helpful advice in clear Thai.
         """.trimIndent()
 
-        val request = GenerateContentRequest(
-            contents = listOf(Content(parts = listOf(Part(text = contextPrompt)))),
-            systemInstruction = Content(parts = listOf(Part(text = "You are a helpful, professional Thai financial advisor. Keep answers concise.")))
-        )
-        
-        for (i in apiKeys.indices) {
+        val requestAdapter = AiApiClient.moshi.adapter(OpenAiRequest::class.java)
+        val responseAdapter = AiApiClient.moshi.adapter(OpenAiResponse::class.java)
+
+        for (i in providers.indices) {
+            val provider = providers[i]
+            val requestBody = OpenAiRequest(
+                model = provider.model,
+                messages = listOf(
+                    OpenAiMessage(role = "system", content = systemPrompt),
+                    OpenAiMessage(role = "user", content = prompt)
+                )
+            )
+
+            val jsonBody = requestAdapter.toJson(requestBody)
+            val request = Request.Builder()
+                .url(provider.url)
+                .addHeader("Authorization", "Bearer ${provider.key}")
+                .addHeader("Content-Type", "application/json")
+                .post(jsonBody.toRequestBody("application/json".toMediaType()))
+                .build()
+
             try {
-                val response = RetrofitClient.service.generateContent("gemini-1.5-flash", apiKeys[i], request)
-                if (response.isSuccessful) {
-                    val body = response.body()
-                    return@withContext body?.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text ?: "No response from AI."
-                } else {
-                    if (response.code() == 429 || response.code() == 503) {
-                        continue // Try next key
+                AiApiClient.client.newCall(request).execute().use { response ->
+                    if (response.isSuccessful) {
+                        val bodyString = response.body?.string()
+                        if (bodyString != null) {
+                            val aiResponse = responseAdapter.fromJson(bodyString)
+                            val answer = aiResponse?.choices?.firstOrNull()?.message?.content
+                            if (answer != null) {
+                                return@withContext answer
+                            }
+                        }
                     } else {
-                        return@withContext "AI Error: ${response.code()}"
+                        if (response.code == 429 || response.code >= 500) {
+                            if (i == providers.lastIndex) return@withContext "AI Error from ${provider.name}: ${response.code}"
+                            continue // Try next provider
+                        } else {
+                            if (i == providers.lastIndex) return@withContext "AI Error: ${response.code} from ${provider.name}"
+                        }
                     }
                 }
-            } catch (e: Exception) {
-                if (i == apiKeys.size - 1) return@withContext "Error reaching AI Advisor: ${e.message}"
+            } catch (e: IOException) {
+                if (i == providers.lastIndex) return@withContext "Error reaching AI Advisors: ${e.message}"
                 continue
             }
         }
         
-        "All AI keys are currently unavailable."
+        "All AI providers are currently unavailable."
     }
+
+    data class AiProvider(val name: String, val url: String, val key: String, val model: String)
 }

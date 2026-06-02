@@ -33,7 +33,9 @@ fun AddTransactionScreen(viewModel: FinanceViewModel, onNavigateBack: () -> Unit
     
     val accounts by viewModel.allAccounts.collectAsStateWithLifecycle()
     var selectedAccountId by remember { mutableStateOf<Int?>(null) }
+    var toAccountId by remember { mutableStateOf<Int?>(null) }
     var expanded by remember { mutableStateOf(false) }
+    var toExpanded by remember { mutableStateOf(false) }
 
     if (showDatePicker) {
         val datePickerState = rememberDatePickerState(initialSelectedDateMillis = selectedDate)
@@ -72,6 +74,11 @@ fun AddTransactionScreen(viewModel: FinanceViewModel, onNavigateBack: () -> Unit
                 selected = type == "Expense",
                 text = "Expense"
             )
+            SegmentedButton(
+                onClick = { type = "Transfer" },
+                selected = type == "Transfer",
+                text = "Transfer"
+            )
         }
         
         Spacer(modifier = Modifier.height(16.dp))
@@ -90,14 +97,16 @@ fun AddTransactionScreen(viewModel: FinanceViewModel, onNavigateBack: () -> Unit
         )
         Spacer(modifier = Modifier.height(8.dp))
 
-        OutlinedTextField(
-            value = name,
-            onValueChange = { name = it },
-            label = { Text("Title") },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true
-        )
-        Spacer(modifier = Modifier.height(8.dp))
+        if (type != "Transfer") {
+            OutlinedTextField(
+                value = name,
+                onValueChange = { name = it },
+                label = { Text("Title") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+        }
         
         OutlinedTextField(
             value = amount,
@@ -109,23 +118,25 @@ fun AddTransactionScreen(viewModel: FinanceViewModel, onNavigateBack: () -> Unit
         )
         Spacer(modifier = Modifier.height(8.dp))
         
-        OutlinedTextField(
-            value = category,
-            onValueChange = { category = it },
-            label = { Text(if (type == "Income") "Category (e.g. Salary)" else "Category (e.g. Food)") },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-        
-        OutlinedTextField(
-            value = source,
-            onValueChange = { source = it },
-            label = { Text("Source / Destination") },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true
-        )
-        Spacer(modifier = Modifier.height(8.dp))
+        if (type != "Transfer") {
+            OutlinedTextField(
+                value = category,
+                onValueChange = { category = it },
+                label = { Text(if (type == "Income") "Category (e.g. Salary)" else "Category (e.g. Food)") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            
+            OutlinedTextField(
+                value = source,
+                onValueChange = { source = it },
+                label = { Text("Source / Destination") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+        }
         
         ExposedDropdownMenuBox(
             expanded = expanded,
@@ -136,9 +147,9 @@ fun AddTransactionScreen(viewModel: FinanceViewModel, onNavigateBack: () -> Unit
                 value = selectedAccount,
                 onValueChange = {},
                 readOnly = true,
-                label = { Text("Account") },
+                label = { Text(if (type == "Transfer") "From Account" else "Account") },
                 trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-                modifier = Modifier.menuAnchor().fillMaxWidth()
+                modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryEditable, true).fillMaxWidth()
             )
             ExposedDropdownMenu(
                 expanded = expanded,
@@ -157,6 +168,38 @@ fun AddTransactionScreen(viewModel: FinanceViewModel, onNavigateBack: () -> Unit
         }
         Spacer(modifier = Modifier.height(8.dp))
         
+        if (type == "Transfer") {
+            ExposedDropdownMenuBox(
+                expanded = toExpanded,
+                onExpandedChange = { toExpanded = !toExpanded }
+            ) {
+                val toAccount = accounts.find { it.id == toAccountId }?.name ?: "Select Destination Account"
+                OutlinedTextField(
+                    value = toAccount,
+                    onValueChange = {},
+                    readOnly = true,
+                    label = { Text("To Account") },
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = toExpanded) },
+                    modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryEditable, true).fillMaxWidth()
+                )
+                ExposedDropdownMenu(
+                    expanded = toExpanded,
+                    onDismissRequest = { toExpanded = false }
+                ) {
+                    accounts.forEach { acc ->
+                        DropdownMenuItem(
+                            text = { Text(acc.name) },
+                            onClick = {
+                                toAccountId = acc.id
+                                toExpanded = false
+                            }
+                        )
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+        }
+        
         OutlinedTextField(
             value = note,
             onValueChange = { note = it },
@@ -170,21 +213,53 @@ fun AddTransactionScreen(viewModel: FinanceViewModel, onNavigateBack: () -> Unit
         Button(
             onClick = {
                 val parsedAmount = amount.toDoubleOrNull() ?: 0.0
-                if (name.isNotBlank() && parsedAmount > 0) {
-                    val accId = selectedAccountId ?: accounts.firstOrNull()?.id ?: 0
-                    viewModel.addTransaction(
-                        Transaction(
-                            name = name,
-                            type = type,
-                            amount = parsedAmount,
-                            date = selectedDate,
-                            accountId = accId,
-                            category = if(category.isBlank()) "General" else category,
-                            source = source,
-                            note = note
+                if (parsedAmount > 0) {
+                    if (type == "Transfer") {
+                        val fromAcc = accounts.find { it.id == selectedAccountId }
+                        val toAcc = accounts.find { it.id == toAccountId }
+                        if (fromAcc != null && toAcc != null && fromAcc.id != toAcc.id) {
+                            viewModel.addTransaction(
+                                Transaction(
+                                    name = "Transfer to ${toAcc.name}",
+                                    type = "Expense",
+                                    amount = parsedAmount,
+                                    date = selectedDate,
+                                    accountId = fromAcc.id,
+                                    category = "Transfer Out",
+                                    source = "",
+                                    note = note
+                                )
+                            )
+                            viewModel.addTransaction(
+                                Transaction(
+                                    name = "Transfer from ${fromAcc.name}",
+                                    type = "Income",
+                                    amount = parsedAmount,
+                                    date = selectedDate,
+                                    accountId = toAcc.id,
+                                    category = "Transfer In",
+                                    source = "",
+                                    note = note
+                                )
+                            )
+                            onNavigateBack()
+                        }
+                    } else if (name.isNotBlank()) {
+                        val accId = selectedAccountId ?: accounts.firstOrNull()?.id ?: 0
+                        viewModel.addTransaction(
+                            Transaction(
+                                name = name,
+                                type = type,
+                                amount = parsedAmount,
+                                date = selectedDate,
+                                accountId = accId,
+                                category = if(category.isBlank()) "General" else category,
+                                source = source,
+                                note = note
+                            )
                         )
-                    )
-                    onNavigateBack()
+                        onNavigateBack()
+                    }
                 }
             },
             modifier = Modifier.fillMaxWidth()
